@@ -1,104 +1,85 @@
-import { Express } from "express";
+import express, { Express } from "express";
 import bodyParser from 'body-parser'
-import companion from '@uppy/companion'
-import * as path from "path";
+import AWS from 'aws-sdk'
 
-const session = require('express-session')
-const cookieParser = require('cookie-parser')
-const fs = require('fs')
-const cors = require('cors')
-
-const DATA_DIR = path.join(__dirname, 'tmp')
+// This is for our env config, to get our api key from the .env
+const dotenv = require('dotenv');
+dotenv.config();
 
 export class Server {
 
     private app: Express;
 
     constructor(app: Express) {
+        // This will setup AWS
+        AWS.config.update({
+            credentials: {
+                accessKeyId: process.env.USER_ACCESS_KEY,
+                secretAccessKey : process.env.USER_SECRET_KEY
+            }, 
+            region: process.env.BUCKET_REGION
+        });
+        const s3 = new AWS.S3();
+
         this.app = app;
 
-        this.app.use(cors({
-            origin: ['http://localhost:3000'],
-            credentials: true,
-            methods: ['GET', 'POST', 'PUT', 'OPTIONS', 'PATCH'],
-          }))
+        /** ---------- MIDDLEWARE ---------- **/
+        this.app.use(bodyParser.json()); 
+        this.app.use(bodyParser.urlencoded({extended: true}));
+        this.app.use(express.static('build'));
 
-        this.app.use((req, res, next) => {
-            res.setHeader('Access-Control-Allow-Origin', req.headers.origin || 'http://localhost:3000')
-            next()
+
+        /** ---------- EXPRESS ROUTES ---------- **/
+
+        // GET - signed url for upload
+        this.app.get('/api/signurl/put/:filename', (req, res) => {
+            const presignedPutUrl = s3.getSignedUrl('putObject', {
+                Bucket: process.env.BUCKET_NAME,
+                Key: req.params.filename, //filename
+                Expires: 5 * 60 //time to expire in seconds - 5 min
+            });
+            console.log('sending presigned url', presignedPutUrl);
+            res.send({url: presignedPutUrl})
         })
-
-        // Routes
-        this.app.get('/', (req, res) => {
-            res.setHeader('Content-Type', 'text/plain')
-            res.send('Welcome to Companion')
+        
+        // GET - signed URL to view
+        this.app.get('/api/signurl/get/:filename', (req, res) => {
+            const presignedGetUrl = s3.getSignedUrl('getObject', {
+                Bucket: process.env.BUCKET_NAME,
+                Key: req.params.filename, 
+                Expires: 100 //time to expire in seconds - 5 min
+            });
+            console.log('sending presigned url', presignedGetUrl);
+            res.send({url: presignedGetUrl})
         })
-
-        this.app.use(bodyParser.json())
-        this.app.use(cookieParser)
-        this.app.use(session({
-            secret: 'some-secret-II',
-            resave: true,
-            saveUninitialized: true,
-        }))
-          
-        // Initialize uppy
-        const uppyOptions = {
-            providerOptions: {
-                s3: {
-                getKey: (req, filename, metadata) => `uppy/${Math.random().toString(32).slice(2)}/${filename}`,
-                key: process.env.COMPANION_AWS_KEY,
-                secret: process.env.COMPANION_AWS_SECRET,
-                bucket: process.env.COMPANION_AWS_BUCKET,
-                region: process.env.COMPANION_AWS_REGION,
-                },
-                // you can also add options for additional providers here
-            },
-            server: {
-                host: 'localhost:8080',
-                protocol: 'http', // 'http' || 'https'
-                path: '/companion',
-            },
-            filePath: DATA_DIR,
-            secret: 'some-secret',
-            uploadUrls: 'http://localhost:3000',
-            debug: true,
-            allowLocalUrls: true, // Only enable this in development
-            acl: 'private',
-            maxFileSize: 1000000000,
-        }
-
-        // Create the data directory here for test purposes only
-        try {
-            fs.accessSync(DATA_DIR)
-        } catch (err) {
-            fs.mkdirSync(DATA_DIR)
-        }
-        process.on('exit', () => {
-            fs.rmSync(DATA_DIR, { recursive: true, force: true })
-        })
-
-        this.app.use('/companion', companion.app(uppyOptions))
-
-        // handle 404
-        this.app.use((req, res) => {
-            return res.status(404).json({ message: 'Not Found' })
-        })
-
-        // handle server errors
-        this.app.use((err, req, res, next) => {
-            console.error('\x1b[31m', err.stack, '\x1b[0m')
-            res.status(err.status || 500).json({ message: err.message, error: err })
-        })
-}
+        
+        // GET signed urls for all images in the s3 bucket
+        this.app.get('/api/image', (req, res) => {
+            const params = {
+            Bucket: process.env.BUCKET_NAME 
+            };
+            s3.listObjectsV2(params, (err, data) => {
+            console.log('S3 List', data);
+            // Package signed URLs for each to send back to client
+            let images = []
+            for (let item of data.Contents) {
+                let url = s3.getSignedUrl('getObject', {
+                    Bucket: process.env.BUCKET_NAME,
+                    Key: item.Key, 
+                    Expires: 100 //time to expire in seconds - 5 min
+                });
+                images.push(url);
+            }
+            res.send(images);
+            })
+        })        
+    }
 
     public start(port: number): void {
-        companion.socket(this.app.listen(port, (err?: any) => {
+        this.app.listen(port, (err?: any) => {
             if (err) throw err;
-            console.log(`> Ready on localhost:${port}`);
-            console.log('> Welcome to Companion!')
-          }));
+            console.log(`> Listening on port:${port}`);
+          });
     }
 }
 
-// add companion emitter to keep track of the state of the upload
