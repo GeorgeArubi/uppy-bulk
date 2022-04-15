@@ -1,6 +1,7 @@
 {
   "name": "@uppy-example/aws-companion",
   "version": "0.0.0",
+  "proxy": "http://localhost:3020/",
   "dependencies": {
     "@babel/core": "^7.2.2",
     "@uppy/aws-s3": "^2.0.9",
