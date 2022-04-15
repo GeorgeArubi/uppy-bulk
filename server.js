@@ -1,18 +1,27 @@
 const fs = require('fs')
 const path = require('path')
-const companion = require('../../packages/@uppy/companion')
+const companion = require('@uppy/companion')
 const app = require('express')()
+const cors = require('cors')
 
 const DATA_DIR = path.join(__dirname, 'tmp')
 
-app.use(require('cors')({
-  origin: true,
+const corsOptions = {
+  origin: ['*'],
   credentials: true,
-}))
+  methods: ['GET', 'HEAD', 'PUT', 'PATCH', 'POST', 'DELETE', 'OPTIONS'],
+  optionsSuccessStatus: 200
+}
+
+app.use(cors(corsOptions))
+app.options('*', cors(corsOptions));
+
 app.use(require('cookie-parser')())
 app.use(require('body-parser').json())
 app.use(require('express-session')({
-  secret: 'hello planet',
+  secret: 'hello-planet',
+  resave: true,
+  saveUninitialized: true
 }))
 
 const options = {
@@ -22,13 +31,16 @@ const options = {
       key: process.env.COMPANION_AWS_KEY,
       secret: process.env.COMPANION_AWS_SECRET,
       bucket: process.env.COMPANION_AWS_BUCKET,
-      region: process.env.COMPANION_AWS_REGION,
-      endpoint: process.env.COMPANION_AWS_ENDPOINT,
+      region: process.env.COMPANION_AWS_REGION
     },
   },
-  server: { host: 'localhost:3020' },
+  server: { 
+    host: 'localhost:3020',
+    protocol: 'http' 
+  },
   filePath: DATA_DIR,
-  secret: 'blah blah',
+  uploadUrls: 'http://localhost:9966',
+  secret: 'blaah-blah',
   debug: true,
 }
 
@@ -41,6 +53,7 @@ try {
 process.on('exit', () => {
   fs.rmSync(DATA_DIR, { recursive: true, force: true })
 })
+
 
 app.use(companion.app(options))
 
