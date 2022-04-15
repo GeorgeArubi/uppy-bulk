@@ -6,6 +6,8 @@ import AWS from 'aws-sdk'
 const dotenv = require('dotenv');
 dotenv.config();
 
+const cors = require('cors')
+
 export class Server {
 
     private app: Express;
@@ -13,10 +15,9 @@ export class Server {
     constructor(app: Express) {
         // This will setup AWS
         AWS.config.update({
-            credentials: {
-                accessKeyId: process.env.USER_ACCESS_KEY,
-                secretAccessKey : process.env.USER_SECRET_KEY
-            }, 
+            accessKeyId: process.env.USER_ACCESS_KEY,
+            secretAccessKey: process.env.USER_SECRET_KEY,
+            signatureVersion: 'v4',
             region: process.env.BUCKET_REGION
         });
         const s3 = new AWS.S3();
@@ -27,6 +28,22 @@ export class Server {
         this.app.use(bodyParser.json()); 
         this.app.use(bodyParser.urlencoded({extended: true}));
         this.app.use(express.static('build'));
+
+        const corsOptions = {
+          origin: ['http://localhost:3000'],
+          credentials: true,
+          methods: ['GET', 'HEAD', 'POST', 'PUT', 'OPTIONS', 'PATCH', 'DELETE'],
+          optionSuccessStatus: 200
+          }
+
+        this.app.use(cors(corsOptions))
+
+        this.app.options('*', cors(corsOptions));
+
+        this.app.use((req, res, next) => {
+            res.setHeader('Access-Control-Allow-Origin', req.headers.origin || 'http://localhost:3000')
+            next()
+        })
 
 
         /** ---------- EXPRESS ROUTES ---------- **/
@@ -53,24 +70,24 @@ export class Server {
             res.send({url: presignedGetUrl})
         })
         
-        // GET signed urls for all images in the s3 bucket
-        this.app.get('/api/image', (req, res) => {
+        // GET signed urls for all audioFiles in the s3 bucket
+        this.app.get('/api/audio', (req, res) => {
             const params = {
             Bucket: process.env.BUCKET_NAME 
             };
             s3.listObjectsV2(params, (err, data) => {
             console.log('S3 List', data);
             // Package signed URLs for each to send back to client
-            let images = []
+            let audioFiles = []
             for (let item of data.Contents) {
                 let url = s3.getSignedUrl('getObject', {
                     Bucket: process.env.BUCKET_NAME,
                     Key: item.Key, 
                     Expires: 100 //time to expire in seconds - 5 min
                 });
-                images.push(url);
+                audioFiles.push(url);
             }
-            res.send(images);
+            res.send(audioFiles);
             })
         })        
     }
